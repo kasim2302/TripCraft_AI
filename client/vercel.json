@@ -2,11 +2,11 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://YOUR_RENDER_BACKEND_URL/api/:path*"
+      "destination": "https://tripcraft-ai-1m4s.onrender.com/api/:path*"
     },
     {
       "source": "/uploads/:path*",
-      "destination": "https://YOUR_RENDER_BACKEND_URL/uploads/:path*"
+      "destination": "https://tripcraft-ai-1m4s.onrender.com/uploads/:path*"
     },
     {
       "source": "/(.*)",

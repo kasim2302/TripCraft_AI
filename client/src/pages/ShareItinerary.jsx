@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import itineraryService from '../services/itineraryService';
+import MapView from '../components/MapView';
 import {
   Calendar, Compass, ChevronRight, Utensils, Car, Home,
   Tag, HelpCircle, Loader2, Copy, Check, MapPin, Plane, Sparkles,
@@ -125,8 +126,9 @@ const ShareItinerary = () => {
         </div>
 
         {/* Day grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          <div className="lg:col-span-1 bg-white rounded-2xl p-4 border border-slate-200 shadow-sm self-start">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          {/* Days Left Bar Selector */}
+          <div className="lg:col-span-3 bg-white rounded-2xl p-4 border border-slate-200 shadow-sm self-start">
             <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 px-2 mb-3">Days</p>
             <div className="flex flex-row lg:flex-col gap-2 overflow-x-auto pb-1 lg:pb-0">
               {daysList.map((day) => {
@@ -142,7 +144,8 @@ const ShareItinerary = () => {
             </div>
           </div>
 
-          <div className="lg:col-span-3 space-y-4">
+          {/* Middle Schedule Timeline */}
+          <div className="lg:col-span-5 space-y-4">
             <h2 className="font-display text-xl font-bold text-slate-900 flex items-center gap-2">
               <Calendar className="h-5 w-5 text-brand-indigo" /> Day {selectedDay} — Schedule
             </h2>
@@ -178,6 +181,14 @@ const ShareItinerary = () => {
                 })}
               </div>
             )}
+          </div>
+
+          {/* Right Map Visualizer */}
+          <div className="lg:col-span-4 space-y-4">
+            <h2 className="font-display text-xl font-bold text-slate-900 flex items-center gap-2">
+              <MapPin className="h-5 w-5 text-brand-indigo" /> Daily Map Route
+            </h2>
+            <MapView destination={itineraryData.destination} activities={currentDayData?.activities || []} />
           </div>
         </div>
 

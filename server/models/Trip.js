@@ -6,6 +6,8 @@ const activitySchema = new mongoose.Schema({
   description: { type: String },
   cost: { type: Number, default: 0 },
   category: { type: String, default: 'Sightseeing' }, // e.g. Sightseeing, Food, Transport, Lodging
+  latitude: { type: Number },
+  longitude: { type: Number },
 });
 
 const daySchema = new mongoose.Schema({

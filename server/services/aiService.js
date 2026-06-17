@@ -40,6 +40,17 @@ const COMMON_PACKING_ITEMS = [
 ];
 
 // Helper to generate dynamic mock plans
+const getMockBaseCoords = (dest = '') => {
+  const d = dest.toLowerCase();
+  if (d.includes('tokyo') || d.includes('japan')) return { lat: 35.6762, lon: 139.6503 };
+  if (d.includes('paris') || d.includes('france')) return { lat: 48.8566, lon: 2.3522 };
+  if (d.includes('london') || d.includes('uk')) return { lat: 51.5074, lon: -0.1278 };
+  if (d.includes('bali')) return { lat: -8.4095, lon: 115.1889 };
+  if (d.includes('greece') || d.includes('athens')) return { lat: 37.9838, lon: 23.7275 };
+  return { lat: 40.7128, lon: -74.0060 }; // Default to New York
+};
+
+// Helper to generate dynamic mock plans
 const generateMockItinerary = (destination, startDate, endDate, budgetLimit, companion, interests) => {
   const start = new Date(startDate);
   const end = new Date(endDate);
@@ -60,6 +71,8 @@ const generateMockItinerary = (destination, startDate, endDate, budgetLimit, com
     pool = [...MOCK_ACTIVITIES.culture, ...MOCK_ACTIVITIES.relaxation];
   }
 
+  const base = getMockBaseCoords(destination);
+
   // Generate days
   for (let i = 1; i <= numDays; i++) {
     const currentDate = new Date(start);
@@ -69,49 +82,71 @@ const generateMockItinerary = (destination, startDate, endDate, budgetLimit, com
     // Pick activities from pool
     const dayActivities = [];
     
+    // Deterministic offset generator
+    const getOffsetCoords = (activityIndex) => {
+      const angle = (((i * 4) + activityIndex) / 16) * 2 * Math.PI;
+      const radius = 0.015 + (activityIndex * 0.003);
+      return {
+        latitude: Number((base.lat + Math.cos(angle) * radius * 0.6).toFixed(6)),
+        longitude: Number((base.lon + Math.sin(angle) * radius).toFixed(6))
+      };
+    };
+
     // 1. Morning Activity
     const act1 = pool[i % pool.length];
     const cost1 = isBudgetHigh ? act1.costHigh : act1.costLow;
+    const coords1 = getOffsetCoords(0);
     dayActivities.push({
       time: '09:00 AM',
       title: `${act1.title}`,
       description: `${act1.description} Perfect for ${companion} traveler(s).`,
       cost: cost1,
       category: act1.category,
+      latitude: coords1.latitude,
+      longitude: coords1.longitude,
     });
 
     // 2. Afternoon Lunch
     const foodList = MOCK_ACTIVITIES.food;
     const food1 = foodList[(i + 1) % foodList.length];
     const costFood1 = isBudgetHigh ? food1.costHigh : food1.costLow;
+    const coords2 = getOffsetCoords(1);
     dayActivities.push({
       time: '01:00 PM',
       title: `Lunch at ${destination} Bistro`,
       description: `Sample regional delicacies including fresh ingredients and custom flavors.`,
       cost: Math.round(costFood1 * 0.4),
       category: 'Food',
+      latitude: coords2.latitude,
+      longitude: coords2.longitude,
     });
 
     // 3. Late Afternoon Exploration
     const act2 = pool[(i + 2) % pool.length];
     const cost2 = isBudgetHigh ? act2.costHigh : act2.costLow;
+    const coords3 = getOffsetCoords(2);
     dayActivities.push({
       time: '03:30 PM',
       title: `${act2.title} Adventure`,
       description: `Immerse yourself in local highlights and scenic areas.`,
       cost: cost2,
       category: act2.category,
+      latitude: coords3.latitude,
+      longitude: coords3.longitude,
     });
 
     // 4. Evening Dinner
     const food2 = foodList[(i + 3) % foodList.length];
     const costFood2 = isBudgetHigh ? food2.costHigh : food2.costLow;
+    const coords4 = getOffsetCoords(3);
     dayActivities.push({
       time: '07:30 PM',
       title: `Dinner at ${destination} Signature Restaurant`,
       description: `Fine local dining with ${companion === 'couple' ? 'romantic atmosphere' : 'vibrant energy'}.`,
       cost: costFood2,
       category: 'Food',
+      latitude: coords4.latitude,
+      longitude: coords4.longitude,
     });
 
     itinerary.push({
@@ -173,7 +208,9 @@ Please return the output STRICTLY as a valid JSON object matching this schema. D
           "title": "Activity Title",
           "description": "Short vivid description",
           "cost": 15,
-          "category": "Sightseeing" 
+          "category": "Sightseeing",
+          "latitude": 35.6762,
+          "longitude": 139.6503
         }
       ]
     }
@@ -187,6 +224,7 @@ Please return the output STRICTLY as a valid JSON object matching this schema. D
 }
 For categories, choose from: Sightseeing, Food, Transport, Lodging, Activities, Other.
 Provide 3-4 activities per day (morning, lunch, afternoon, dinner). Make it match the interests and companion.
+Each activity MUST have precise, real latitude and longitude numbers (numerical float values, not strings) mapping to actual physical locations in ${destination} so they can be routed correctly on a map.
 `;
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`;

@@ -245,11 +245,11 @@ ${itinerarySummary}
 
 The user is asking a question about their trip: "${message}"
 
-Provide a friendly, highly helpful, and conversational response based on the itinerary. Give specific, useful tips (like dress codes, restaurant options, routing advice, local customs, or weather recommendations).
-Keep the response relatively concise (maximum 3-4 sentences). Do not use markdown code block formatting or markdown headers, just plain bold/italic styling where appropriate.
+Provide a friendly, highly helpful, and conversational response. Answer any questions the user has about their trip, the destination, local tips, general recommendations, custom activities, or anything else, dynamically drawing from both the itinerary context and your general travel knowledge about ${trip.destination}. Give specific, useful tips (like romantic spots, dress codes, restaurant options, routing advice, local customs, or weather recommendations).
+Keep the response relatively concise (maximum 4-5 sentences). Do not use markdown code block formatting or markdown headers, just plain bold/italic styling where appropriate.
 `;
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`;
     const response = await fetch(url, {
       method: 'POST',
       headers: {

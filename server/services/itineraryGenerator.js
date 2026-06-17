@@ -94,7 +94,7 @@ Return ONLY a raw valid JSON object. Do not wrap in markdown quotes. The JSON st
 For categories, choose from: Sightseeing, Food, Transport, Lodging, Activities, Other. Provide 3-4 activities per day.
 `;
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`;
     const response = await fetch(url, {
       method: 'POST',
       headers: {

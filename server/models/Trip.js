@@ -26,6 +26,8 @@ const budgetItemSchema = new mongoose.Schema({
   amount: { type: Number, required: true },
   category: { type: String, default: 'Other' }, // e.g., Activities, Food, Transport, Lodging, Other
   date: { type: String },
+  paidBy: { type: String },
+  splitWith: [{ type: String }],
 });
 
 const tripSchema = new mongoose.Schema(
@@ -56,6 +58,11 @@ const tripSchema = new mongoose.Schema(
       default: 'solo', // solo, couple, family, friends
     },
     interests: [
+      {
+        type: String,
+      },
+    ],
+    groupMembers: [
       {
         type: String,
       },

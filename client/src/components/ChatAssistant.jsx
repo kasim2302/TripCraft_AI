@@ -9,7 +9,7 @@ const SUGGESTIONS = [
   'Any interesting travel tips?'
 ];
 
-const ChatAssistant = ({ tripId }) => {
+const ChatAssistant = ({ tripId, onTripUpdated }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState([
@@ -41,6 +41,10 @@ const ChatAssistant = ({ tripId }) => {
 
     try {
       const data = await tripService.sendChat(tripId, text);
+
+      if (data?.trip && onTripUpdated) {
+        onTripUpdated(data.trip);
+      }
 
       const assistantMsg = {
         id: (Date.now() + 1).toString(),

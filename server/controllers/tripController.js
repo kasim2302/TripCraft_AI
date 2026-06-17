@@ -90,6 +90,7 @@ const updateTrip = async (req, res) => {
       'budgetLimit',
       'companion',
       'interests',
+      'groupMembers',
       'itinerary',
       'packingList',
       'budgetLedger',
@@ -156,7 +157,7 @@ const togglePackingItem = async (req, res) => {
 // @route   POST /api/trips/:id/budget
 // @access  Private
 const addBudgetItem = async (req, res) => {
-  const { title, amount, category, date } = req.body;
+  const { title, amount, category, date, paidBy, splitWith } = req.body;
 
   try {
     if (!title || amount === undefined) {
@@ -168,7 +169,7 @@ const addBudgetItem = async (req, res) => {
       return res.status(404).json({ message: 'Trip not found' });
     }
 
-    trip.budgetLedger.push({ title, amount, category, date });
+    trip.budgetLedger.push({ title, amount, category, date, paidBy, splitWith });
     await trip.save();
 
     return res.json(trip);
@@ -226,13 +227,15 @@ const chatAboutTrip = async (req, res) => {
 
     // Format trip data into a compact summary for prompt context
     const itinerarySummary = trip.itinerary.map(day => {
-      const activities = day.activities.map(act => `- ${act.time}: ${act.title} (${act.category}, cost: $${act.cost}): ${act.description}`).join('\n');
+      const activities = day.activities.map(act => `- ${act.time}: ${act.title} (${act.category}, cost: $${act.cost}, lat: ${act.latitude || 'N/A'}, lon: ${act.longitude || 'N/A'}): ${act.description || ''}`).join('\n');
       return `Day ${day.dayNumber} (${day.date}):\n${activities}`;
     }).join('\n\n');
 
     const contextPrompt = `
-You are a personal travel guide and local concierge for a trip to ${trip.destination}.
-Here is the travel plan details:
+You are an intelligent travel concierge and planning assistant for a trip to ${trip.destination}.
+Your role is to both converse with the user and execute modifications to their travel itinerary when requested.
+
+Here are the current travel plan details:
 - Destination: ${trip.destination}
 - Dates: ${trip.startDate.toISOString().split('T')[0]} to ${trip.endDate.toISOString().split('T')[0]}
 - Companion: ${trip.companion}
@@ -243,10 +246,27 @@ Here is the travel plan details:
 Itinerary details:
 ${itinerarySummary}
 
-The user is asking a question about their trip: "${message}"
+The user's message is: "${message}"
 
-Provide a friendly, highly helpful, and conversational response. Answer any questions the user has about their trip, the destination, local tips, general recommendations, custom activities, or anything else, dynamically drawing from both the itinerary context and your general travel knowledge about ${trip.destination}. Give specific, useful tips (like romantic spots, dress codes, restaurant options, routing advice, local customs, or weather recommendations).
-Keep the response relatively concise (maximum 4-5 sentences). Do not use markdown code block formatting or markdown headers, just plain bold/italic styling where appropriate.
+Determine if the user is asking to add, delete, edit, or modify an activity in their itinerary.
+1. If they want to MODIFY (add, remove, or edit) the itinerary:
+   - Formulate a brief, friendly reply confirming the change.
+   - Formulate a structured action object representing the edit.
+     Supported actions:
+     - { "type": "ADD_ACTIVITY", "dayNumber": 1, "activity": { "time": "09:00 AM", "title": "Sushi Lunch", "description": "Local food tasting", "cost": 25, "category": "Food", "latitude": 35.6762, "longitude": 139.6503 } }
+     - { "type": "DELETE_ACTIVITY", "dayNumber": 1, "activityTitle": "Sushi Lunch" }
+     - { "type": "EDIT_ACTIVITY", "dayNumber": 1, "oldTitle": "Sushi Lunch", "updatedFields": { "title": "Fine Dining Sushi", "time": "01:00 PM", "cost": 80 } }
+     (Note: Category must be one of: Sightseeing, Food, Transport, Lodging, Activities, Other. Ensure latitude and longitude are valid numbers for physical spots in ${trip.destination}.)
+
+2. If they are just asking a QUESTION or having a chat:
+   - Formulate a friendly, highly helpful response.
+   - Set the action field to null.
+
+You MUST respond strictly with a valid JSON object matching this schema (do not wrap in markdown fences or comments, just output raw JSON):
+{
+  "reply": "Conversational reply to the user.",
+  "action": null | { "type": "ADD_ACTIVITY" | "DELETE_ACTIVITY" | "EDIT_ACTIVITY", ... }
+}
 `;
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`;
@@ -260,7 +280,10 @@ Keep the response relatively concise (maximum 4-5 sentences). Do not use markdow
           {
             parts: [{ text: contextPrompt }]
           }
-        ]
+        ],
+        generationConfig: {
+          responseMimeType: 'application/json'
+        }
       }),
     });
 
@@ -269,12 +292,50 @@ Keep the response relatively concise (maximum 4-5 sentences). Do not use markdow
     }
 
     const data = await response.json();
-    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "I couldn't generate a response. Please try again.";
+    const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    if (!textResponse) {
+      throw new Error('Received empty response from Gemini API');
+    }
 
-    return res.json({ reply });
+    const parsedResponse = JSON.parse(textResponse);
+    let reply = parsedResponse.reply || "I've processed your request.";
+
+    if (parsedResponse.action) {
+      const { type, dayNumber, activity, activityTitle, oldTitle, updatedFields } = parsedResponse.action;
+      
+      if (type === 'ADD_ACTIVITY' && dayNumber && activity) {
+        const day = trip.itinerary.find(d => d.dayNumber === Number(dayNumber));
+        if (day) {
+          day.activities.push(activity);
+        }
+      } else if (type === 'DELETE_ACTIVITY' && dayNumber && activityTitle) {
+        const day = trip.itinerary.find(d => d.dayNumber === Number(dayNumber));
+        if (day) {
+          day.activities = day.activities.filter(
+            a => a.title.toLowerCase() !== activityTitle.toLowerCase() &&
+                 !a.title.toLowerCase().includes(activityTitle.toLowerCase())
+          );
+        }
+      } else if (type === 'EDIT_ACTIVITY' && dayNumber && oldTitle && updatedFields) {
+        const day = trip.itinerary.find(d => d.dayNumber === Number(dayNumber));
+        if (day) {
+          const act = day.activities.find(
+            a => a.title.toLowerCase() === oldTitle.toLowerCase() ||
+                 a.title.toLowerCase().includes(oldTitle.toLowerCase())
+          );
+          if (act) {
+            Object.assign(act, updatedFields);
+          }
+        }
+      }
+
+      await trip.save();
+    }
+
+    return res.json({ reply, trip });
   } catch (error) {
     console.error('Error in trip chat:', error);
-    return res.status(500).json({ message: 'Server error processing chat request' });
+    return res.status(500).json({ message: 'Server error processing chat request', error: error.message });
   }
 };
 

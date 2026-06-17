@@ -10,6 +10,7 @@ import {
   CloudSun, Coins, Printer, Sparkles
 } from 'lucide-react';
 import { formatDate, formatCurrency, getDaysCount } from '../utils/formatters';
+import { exportToICS } from '../utils/calendarGenerator';
 
 const CATEGORY_META = {
   Sightseeing: { icon: Compass,    pill: 'pill-cyan',    dot: '#0891b2', color: 'bg-cyan-500' },
@@ -42,6 +43,113 @@ const TripDetails = () => {
   // Live Currency Conversion States
   const [rates, setRates] = useState({ USD: 1 });
   const [selectedCurrency, setSelectedCurrency] = useState('USD');
+
+  // Group Splitter States
+  const [newMemberName, setNewMemberName] = useState('');
+  const [expensePaidBy, setExpensePaidBy] = useState('');
+  const [expenseSplitWith, setExpenseSplitWith] = useState([]);
+
+  // Booklet Customizer States
+  const [bookletCoverPhoto, setBookletCoverPhoto] = useState('https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?w=1200&q=80');
+  const [bookletTheme, setBookletTheme] = useState('minimal'); // 'minimal', 'adventure', 'retro', 'sleek-dark'
+  const [showNotes, setShowNotes] = useState(true);
+  const [showBudget, setShowBudget] = useState(true);
+  const [showPacking, setShowPacking] = useState(true);
+  const [personalNotes, setPersonalNotes] = useState('');
+
+  const COVER_PHOTOS = [
+    { name: 'Ocean/Travel', url: 'https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?w=1200&q=80' },
+    { name: 'Mountain Peak', url: 'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=1200&q=80' },
+    { name: 'Kyoto Alley', url: 'https://images.unsplash.com/photo-1493976040374-85c8e12f0c0e?w=1200&q=80' },
+    { name: 'Retro Train', url: 'https://images.unsplash.com/photo-1519681393784-d120267933ba?w=1200&q=80' }
+  ];
+
+  const getThemeClass = () => {
+    switch (bookletTheme) {
+      case 'adventure':
+        return 'font-sans bg-emerald-50/20 text-emerald-950 border border-emerald-300 p-8 max-w-4xl mx-auto rounded-3xl';
+      case 'retro':
+        return 'font-mono bg-amber-50/15 text-amber-950 border border-amber-300 p-8 max-w-4xl mx-auto rounded-3xl';
+      case 'sleek-dark':
+        return 'font-sans bg-slate-900 text-slate-100 border border-slate-700 p-8 max-w-4xl mx-auto rounded-3xl';
+      default:
+        return 'font-serif bg-white text-slate-900 border border-slate-200 p-8 max-w-4xl mx-auto rounded-3xl shadow-sm';
+    }
+  };
+
+  const getHeadingThemeClass = () => {
+    switch (bookletTheme) {
+      case 'adventure': return 'text-emerald-700 border-emerald-300';
+      case 'retro': return 'text-amber-800 border-dashed border-amber-300';
+      case 'sleek-dark': return 'text-indigo-400 border-slate-700';
+      default: return 'text-slate-800 border-slate-300';
+    }
+  };
+
+  const getGroupBalances = () => {
+    const members = trip?.groupMembers || [];
+    if (members.length === 0) return [];
+
+    // Initialize net balances (positive means you are owed money, negative means you owe money)
+    const netBalances = {};
+    members.forEach(m => { netBalances[m] = 0; });
+
+    trip.budgetLedger?.forEach(item => {
+      if (!item.paidBy || !item.splitWith || item.splitWith.length === 0) return;
+      const payer = item.paidBy;
+      const sharers = item.splitWith;
+      const shareAmount = item.amount / sharers.length;
+
+      // The payer gets back the share of everyone else
+      if (netBalances[payer] !== undefined) {
+        netBalances[payer] += item.amount;
+      }
+      
+      // Each sharer owes their share
+      sharers.forEach(s => {
+        if (netBalances[s] !== undefined) {
+          netBalances[s] -= shareAmount;
+        }
+      });
+    });
+
+    // Simplify debts (Greedy algorithm)
+    const debtors = [];
+    const creditors = [];
+
+    Object.entries(netBalances).forEach(([name, bal]) => {
+      const rounded = Math.round(bal * 100) / 100;
+      if (rounded < -0.01) {
+        debtors.push({ name, amount: -rounded });
+      } else if (rounded > 0.01) {
+        creditors.push({ name, amount: rounded });
+      }
+    });
+
+    const transfers = [];
+    let dIdx = 0;
+    let cIdx = 0;
+
+    while (dIdx < debtors.length && cIdx < creditors.length) {
+      const debtor = debtors[dIdx];
+      const creditor = creditors[cIdx];
+      const amountToTransfer = Math.min(debtor.amount, creditor.amount);
+
+      transfers.push({
+        from: debtor.name,
+        to: creditor.name,
+        amount: amountToTransfer
+      });
+
+      debtor.amount -= amountToTransfer;
+      creditor.amount -= amountToTransfer;
+
+      if (debtor.amount < 0.01) dIdx++;
+      if (creditor.amount < 0.01) cIdx++;
+    }
+
+    return transfers;
+  };
 
   // Fetch Trip Details
   useEffect(() => {
@@ -126,8 +234,16 @@ const TripDetails = () => {
     e.preventDefault(); if (!budgetTitle || !budgetAmount) return;
     try {
       setAddingBudget(true);
-      const updatedTrip = await tripService.addBudgetItem(trip._id, { title: budgetTitle, amount: Number(budgetAmount), category: budgetCategory, date: budgetDate });
+      const updatedTrip = await tripService.addBudgetItem(trip._id, { 
+        title: budgetTitle, 
+        amount: Number(budgetAmount), 
+        category: budgetCategory, 
+        date: budgetDate,
+        paidBy: expensePaidBy || undefined,
+        splitWith: expenseSplitWith.length > 0 ? expenseSplitWith : undefined
+      });
       setTrip(updatedTrip); setBudgetTitle(''); setBudgetAmount('');
+      setExpensePaidBy(''); setExpenseSplitWith([]);
     } catch { alert('Failed to add expense'); }
     finally { setAddingBudget(false); }
   };
@@ -249,11 +365,15 @@ const TripDetails = () => {
     <div className="space-y-7 animate-fade-in max-w-6xl mx-auto pb-16">
       
       {/* Printable Booklet (hidden on screen, visible on print) */}
-      <div className="hidden print:block space-y-8 p-8 max-w-4xl mx-auto">
-        <div className="border-b-2 border-slate-300 pb-5 text-center">
-          <h1 className="font-display text-4xl font-black text-slate-900">{trip.destination}</h1>
-          <p className="text-slate-500 font-bold uppercase tracking-widest text-xs mt-2">Personal Travel Booklet · TripCraft AI</p>
-          <div className="flex justify-center gap-6 text-sm text-slate-600 mt-3 font-semibold">
+      <div className={`hidden print:block space-y-8 ${getThemeClass()}`}>
+        {/* Cover Page */}
+        <div className={`border-b-2 pb-5 text-center break-after-page ${getHeadingThemeClass()}`}>
+          <div className="h-64 w-full rounded-2xl overflow-hidden mb-6 border">
+            <img src={bookletCoverPhoto} alt="Cover" className="w-full h-full object-cover" />
+          </div>
+          <h1 className="font-display text-4xl font-black">{trip.destination}</h1>
+          <p className="font-bold uppercase tracking-widest text-xs mt-2 opacity-80">Personal Travel Booklet · TripCraft AI</p>
+          <div className="flex justify-center gap-6 text-sm mt-3 font-semibold opacity-95">
             <span>📅 {formatDate(trip.startDate)} – {formatDate(trip.endDate)} ({duration} days)</span>
             <span className="capitalize">👥 {trip.companion} Trip</span>
             <span>💰 Total Budget: {formatCurrency(trip.budgetLimit)}</span>
@@ -262,25 +382,25 @@ const TripDetails = () => {
 
         {/* Print Timeline */}
         <div className="space-y-8 mt-8">
-          <h2 className="text-xl font-bold border-b border-slate-200 pb-2 text-slate-800">Daily Travel Schedule</h2>
+          <h2 className={`text-xl font-bold border-b pb-2 ${getHeadingThemeClass()}`}>Daily Travel Schedule</h2>
           {trip.itinerary?.map((day) => (
             <div key={day.dayNumber} className="space-y-3 break-inside-avoid pt-2">
-              <h3 className="font-display font-bold text-base text-brand-indigo bg-slate-50 px-3 py-1.5 rounded-lg">
+              <h3 className="font-display font-bold text-base bg-slate-50/10 px-3 py-1.5 rounded-lg border border-slate-200/20">
                 Day {day.dayNumber} — {formatDate(day.date)}
               </h3>
-              <div className="divide-y divide-slate-100 pl-4 space-y-3">
+              <div className="divide-y divide-slate-100/20 pl-4 space-y-3">
                 {day.activities?.map((act, idx) => (
                   <div key={idx} className="flex justify-between gap-4 pt-3 first:pt-1">
                     <div className="space-y-1">
-                      <p className="text-sm font-bold text-slate-800">
-                        <span className="text-brand-indigo font-mono mr-2">[{act.time}]</span>
+                      <p className="text-sm font-bold">
+                        <span className="font-mono mr-2">[{act.time}]</span>
                         {act.title}
                       </p>
-                      <p className="text-xs text-slate-500 leading-relaxed max-w-2xl">{act.description}</p>
+                      <p className="text-xs opacity-75 leading-relaxed max-w-2xl">{act.description}</p>
                     </div>
                     <div className="text-right shrink-0">
-                      <span className="text-xs font-bold bg-slate-100 px-2 py-0.5 rounded-sm">{act.category}</span>
-                      <p className="text-xs font-bold text-slate-700 mt-1">{act.cost > 0 ? formatCurrency(act.cost) : 'Free'}</p>
+                      <span className="text-xs font-bold bg-slate-100/10 px-2 py-0.5 rounded-sm">{act.category}</span>
+                      <p className="text-xs font-bold mt-1">{act.cost > 0 ? formatCurrency(act.cost) : 'Free'}</p>
                     </div>
                   </div>
                 ))}
@@ -289,33 +409,48 @@ const TripDetails = () => {
           ))}
         </div>
 
-        {/* Print Packing Checklist */}
-        <div className="grid grid-cols-2 gap-8 break-inside-avoid pt-10 border-t border-slate-300">
-          <div>
-            <h2 className="text-base font-bold border-b border-slate-200 pb-2 text-slate-800">Packing Checklist</h2>
-            <div className="mt-3 grid grid-cols-1 gap-2 text-xs text-slate-700">
-              {trip.packingList?.map((item, idx) => (
-                <div key={idx} className="flex items-center gap-2">
-                  <span className="h-3.5 w-3.5 border border-slate-400 rounded-sm inline-block shrink-0" />
-                  <span>{item.item}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div>
-            <h2 className="text-base font-bold border-b border-slate-200 pb-2 text-slate-800">Expense Summary</h2>
-            <div className="mt-3 space-y-2 text-xs text-slate-700">
-              <div className="flex justify-between"><span>Itinerary Activities:</span><span className="font-bold">{formatCurrency(activitiesSum)}</span></div>
-              {trip.budgetLedger?.map((item, idx) => (
-                <div key={idx} className="flex justify-between"><span>{item.title}:</span><span>{formatCurrency(item.amount)}</span></div>
-              ))}
-              <div className="flex justify-between border-t pt-2 font-bold text-slate-900">
-                <span>Total Expenses Spent:</span>
-                <span>{formatCurrency(totalCostUSD)}</span>
+        {/* Print Packing & Budget */}
+        <div className={`grid grid-cols-2 gap-8 break-inside-avoid pt-10 border-t ${getHeadingThemeClass()}`}>
+          {showPacking && (
+            <div>
+              <h2 className="text-base font-bold border-b pb-2">Packing Checklist</h2>
+              <div className="mt-3 grid grid-cols-1 gap-2 text-xs">
+                {trip.packingList?.map((item, idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    <span className="h-3.5 w-3.5 border rounded-sm inline-block shrink-0 border-current" />
+                    <span className={item.packed ? 'line-through opacity-50' : ''}>{item.item}</span>
+                  </div>
+                ))}
               </div>
             </div>
-          </div>
+          )}
+          {showBudget && (
+            <div>
+              <h2 className="text-base font-bold border-b pb-2">Expense Summary</h2>
+              <div className="mt-3 space-y-2 text-xs">
+                <div className="flex justify-between"><span>Itinerary Activities:</span><span className="font-bold">{formatCurrency(activitiesSum)}</span></div>
+                {trip.budgetLedger?.map((item, idx) => (
+                  <div key={idx} className="flex justify-between">
+                    <span>{item.title} {item.paidBy ? `(Paid by ${item.paidBy})` : ''}:</span>
+                    <span>{formatCurrency(item.amount)}</span>
+                  </div>
+                ))}
+                <div className="flex justify-between border-t pt-2 font-bold">
+                  <span>Total Expenses Spent:</span>
+                  <span>{formatCurrency(totalCostUSD)}</span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
+
+        {/* Personal Notes (Printed if toggled) */}
+        {showNotes && personalNotes && (
+          <div className={`space-y-3 pt-8 border-t break-inside-avoid ${getHeadingThemeClass()}`}>
+            <h2 className="text-base font-bold pb-2">Traveler Notes</h2>
+            <p className="text-xs opacity-80 whitespace-pre-line leading-relaxed">{personalNotes}</p>
+          </div>
+        )}
       </div>
 
       {/* Screen Interface (hidden on print) */}
@@ -324,12 +459,20 @@ const TripDetails = () => {
           <Link to="/dashboard" className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-700 transition-colors">
             <ArrowLeft className="h-4 w-4" /> Back to Dashboard
           </Link>
-          <button
-            onClick={() => window.print()}
-            className="btn-primary inline-flex items-center gap-2 rounded-2xl px-4 py-2.5 text-xs shadow-sm hover:-translate-y-0.5 transition-all cursor-pointer shrink-0"
-          >
-            <Printer className="h-3.5 w-3.5" /> Print Booklet / PDF
-          </button>
+          <div className="flex gap-2 shrink-0">
+            <button
+              onClick={() => exportToICS(trip)}
+              className="btn-indigo inline-flex items-center gap-2 rounded-2xl px-4 py-2.5 text-xs shadow-sm hover:-translate-y-0.5 transition-all cursor-pointer"
+            >
+              <Calendar className="h-3.5 w-3.5" /> Export to Calendar
+            </button>
+            <button
+              onClick={() => window.print()}
+              className="btn-primary inline-flex items-center gap-2 rounded-2xl px-4 py-2.5 text-xs shadow-sm hover:-translate-y-0.5 transition-all cursor-pointer"
+            >
+              <Printer className="h-3.5 w-3.5" /> Print Booklet / PDF
+            </button>
+          </div>
         </div>
 
         {/* Header */}
@@ -506,7 +649,11 @@ const TripDetails = () => {
                       ) : (
                         trip.budgetLedger?.map((item) => (
                           <tr key={item._id} className="hover:bg-slate-50 transition-colors">
-                            <td className="px-5 py-4"><p className="font-bold text-slate-900">{item.title}</p>{item.date && <p className="text-xs text-slate-400">{formatDate(item.date)}</p>}</td>
+                            <td className="px-5 py-4">
+                              <p className="font-bold text-slate-900">{item.title}</p>
+                              {item.paidBy && <p className="text-[10px] text-brand-indigo font-bold mt-0.5">Paid by {item.paidBy}</p>}
+                              {item.date && <p className="text-xs text-slate-400">{formatDate(item.date)}</p>}
+                            </td>
                             <td className="px-5 py-4">
                               <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${(CATEGORY_META[item.category] || CATEGORY_META.Other).pill}`}>
                                 {item.category}
@@ -563,37 +710,177 @@ const TripDetails = () => {
               </div>
             </div>
 
-            {/* Add Expense Form */}
-            <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-4">
-              <h3 className="font-display text-sm font-bold text-slate-900 flex items-center gap-2"><Plus className="h-4 w-4 text-brand-indigo" />Add Expense</h3>
-              <form onSubmit={handleAddExpense} className="space-y-3">
-                <div>
-                  <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1.5">Description</label>
-                  <input type="text" required value={budgetTitle} onChange={(e) => setBudgetTitle(e.target.value)}
-                    placeholder="e.g. Flight Tickets" className="input-dark w-full rounded-xl px-3 py-2.5 text-sm" />
+            {/* Add Expense Form and Group Setup */}
+            <div className="space-y-6">
+              {/* Group Co-Travelers Card */}
+              <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-4">
+                <h3 className="font-display text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <Users className="h-4 w-4 text-brand-indigo" /> Group Co-Travelers
+                </h3>
+                
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="e.g. Alice"
+                    value={newMemberName}
+                    onChange={(e) => setNewMemberName(e.target.value)}
+                    className="input-dark flex-1 rounded-xl px-3 py-2 text-xs"
+                  />
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!newMemberName.trim()) return;
+                      if (trip.groupMembers?.includes(newMemberName.trim())) {
+                        alert('Member already added.');
+                        return;
+                      }
+                      const updatedMembers = [...(trip.groupMembers || []), newMemberName.trim()];
+                      try {
+                        const updated = await tripService.updateTrip(trip._id, { groupMembers: updatedMembers });
+                        setTrip(updated);
+                        setNewMemberName('');
+                      } catch {
+                        alert('Failed to add member.');
+                      }
+                    }}
+                    className="btn-primary rounded-xl px-3 py-2 text-xs font-bold cursor-pointer"
+                  >
+                    Add
+                  </button>
                 </div>
-                <div>
-                  <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1.5">Amount (USD)</label>
-                  <input type="number" required value={budgetAmount} onChange={(e) => setBudgetAmount(e.target.value)}
-                    placeholder="e.g. 350" className="input-dark w-full rounded-xl px-3 py-2.5 text-sm" />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
+
+                {trip.groupMembers?.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {trip.groupMembers.map((m, idx) => (
+                      <span
+                        key={idx}
+                        className="inline-flex items-center gap-1 bg-slate-50 border border-slate-200 text-slate-700 text-xs px-2.5 py-1 rounded-lg"
+                      >
+                        {m}
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const updatedMembers = trip.groupMembers.filter(member => member !== m);
+                            try {
+                              const updated = await tripService.updateTrip(trip._id, { groupMembers: updatedMembers });
+                              setTrip(updated);
+                            } catch {
+                              alert('Failed to remove member.');
+                            }
+                          }}
+                          className="text-slate-400 hover:text-rose-500 font-bold ml-1 text-[10px] cursor-pointer"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-slate-400">No group members added. Add co-travelers to split expenses.</p>
+                )}
+              </div>
+
+              {/* Add Expense Form */}
+              <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-4">
+                <h3 className="font-display text-sm font-bold text-slate-900 flex items-center gap-2"><Plus className="h-4 w-4 text-brand-indigo" />Add Expense</h3>
+                <form onSubmit={handleAddExpense} className="space-y-3">
                   <div>
-                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1.5">Category</label>
-                    <select value={budgetCategory} onChange={(e) => setBudgetCategory(e.target.value)} className="input-dark w-full rounded-xl px-3 py-2.5 text-xs">
-                      {['Lodging','Transport','Food','Activities','Other'].map((c) => <option key={c}>{c}</option>)}
-                    </select>
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1.5">Description</label>
+                    <input type="text" required value={budgetTitle} onChange={(e) => setBudgetTitle(e.target.value)}
+                      placeholder="e.g. Flight Tickets" className="input-dark w-full rounded-xl px-3 py-2.5 text-sm" />
                   </div>
                   <div>
-                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1.5">Date</label>
-                    <input type="date" value={budgetDate} onChange={(e) => setBudgetDate(e.target.value)} className="input-dark w-full rounded-xl px-3 py-2.5 text-xs" />
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1.5">Amount (USD)</label>
+                    <input type="number" required value={budgetAmount} onChange={(e) => setBudgetAmount(e.target.value)}
+                      placeholder="e.g. 350" className="input-dark w-full rounded-xl px-3 py-2.5 text-sm" />
                   </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1.5">Category</label>
+                      <select value={budgetCategory} onChange={(e) => setBudgetCategory(e.target.value)} className="input-dark w-full rounded-xl px-3 py-2.5 text-xs">
+                        {['Lodging','Transport','Food','Activities','Other'].map((c) => <option key={c}>{c}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1.5">Date</label>
+                      <input type="date" value={budgetDate} onChange={(e) => setBudgetDate(e.target.value)} className="input-dark w-full rounded-xl px-3 py-2.5 text-xs" />
+                    </div>
+                  </div>
+
+                  {trip.groupMembers?.length > 0 && (
+                    <div className="space-y-3 border-t border-slate-100 pt-3">
+                      <div>
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1.5">Paid By</label>
+                        <select
+                          value={expensePaidBy}
+                          onChange={(e) => setExpensePaidBy(e.target.value)}
+                          className="input-dark w-full rounded-xl px-3 py-2.5 text-xs"
+                        >
+                          <option value="">Select payer...</option>
+                          {trip.groupMembers.map(m => (
+                            <option key={m} value={m}>{m}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1.5">Split With</label>
+                        <div className="flex flex-wrap gap-2 max-h-24 overflow-y-auto bg-slate-50 border border-slate-100 rounded-xl p-2.5">
+                          {trip.groupMembers.map(m => {
+                            const checked = expenseSplitWith.includes(m);
+                            return (
+                              <label key={m} className="flex items-center gap-1.5 text-xs text-slate-600 font-semibold cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() => {
+                                    if (checked) {
+                                      setExpenseSplitWith(prev => prev.filter(item => item !== m));
+                                    } else {
+                                      setExpenseSplitWith(prev => [...prev, m]);
+                                    }
+                                  }}
+                                />
+                                {m}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <button type="submit" disabled={addingBudget}
+                    className="btn-primary w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm cursor-pointer disabled:opacity-50 mt-1">
+                    {addingBudget ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Plus className="h-4 w-4" />Log Expense</>}
+                  </button>
+                </form>
+              </div>
+
+              {/* Debt Balances Card */}
+              {trip.groupMembers?.length > 0 && (
+                <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-4">
+                  <h3 className="font-display text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <Coins className="h-4 w-4 text-brand-violet" /> Simplified Group Balances
+                  </h3>
+                  
+                  {getGroupBalances().length > 0 ? (
+                    <div className="divide-y divide-slate-100">
+                      {getGroupBalances().map((t, idx) => (
+                        <div key={idx} className="flex justify-between items-center py-2.5 text-xs font-semibold">
+                          <span className="text-slate-600">
+                            <span className="font-bold text-slate-800">{t.from}</span> owes <span className="font-bold text-slate-800">{t.to}</span>
+                          </span>
+                          <span className="text-brand-indigo font-bold bg-indigo-50 border border-indigo-100 rounded-lg px-2.5 py-1">
+                            {formattedCost(t.amount)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-400 italic">All debts settled or no group expenses logged.</p>
+                  )}
                 </div>
-                <button type="submit" disabled={addingBudget}
-                  className="btn-primary w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm cursor-pointer disabled:opacity-50 mt-1">
-                  {addingBudget ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Plus className="h-4 w-4" />Log Expense</>}
-                </button>
-              </form>
+              )}
             </div>
           </div>
         )}
@@ -715,8 +1002,66 @@ const TripDetails = () => {
         )}
       </div>
 
+      {/* Booklet Designer Options (Screen Only) */}
+      <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-6">
+        <div className="flex items-center gap-2.5">
+          <div className="h-8 w-8 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-brand-indigo">
+            <Printer className="h-4 w-4" />
+          </div>
+          <div>
+            <h3 className="font-display text-sm font-bold text-slate-900">Booklet Designer & Customizer</h3>
+            <p className="text-[10px] text-slate-400">Configure theme, cover photo, and print settings for PDF export</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 text-xs">
+          {/* Theme Selector */}
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Booklet Theme</label>
+            <select value={bookletTheme} onChange={(e) => setBookletTheme(e.target.value)}
+              className="input-dark w-full rounded-xl px-3 py-2.5 text-xs">
+              <option value="minimal">Minimalist Classic</option>
+              <option value="adventure">Outdoor Adventure</option>
+              <option value="retro">Vintage Retro</option>
+              <option value="sleek-dark">Sleek Dark Mode</option>
+            </select>
+          </div>
+
+          {/* Sections Toggles */}
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Print Sections</label>
+            <div className="flex flex-col gap-2 pt-1 font-semibold text-slate-600">
+              <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={showPacking} onChange={() => setShowPacking(!showPacking)} /> Packing Checklist</label>
+              <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={showBudget} onChange={() => setShowBudget(!showBudget)} /> Expense Summary</label>
+              <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={showNotes} onChange={() => setShowNotes(!showNotes)} /> Personal Travel Notes</label>
+            </div>
+          </div>
+
+          {/* Cover Selector */}
+          <div className="md:col-span-2 space-y-2">
+            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Cover Background</label>
+            <div className="grid grid-cols-2 gap-2">
+              {COVER_PHOTOS.map((pic, idx) => (
+                <button key={idx} type="button" onClick={() => setBookletCoverPhoto(pic.url)}
+                  className={`p-1.5 rounded-lg border text-[10px] font-bold transition-all truncate ${bookletCoverPhoto === pic.url ? 'border-brand-indigo bg-indigo-50/50 text-brand-indigo' : 'border-slate-200 hover:border-slate-300'}`}>
+                  {pic.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Custom Notes */}
+          <div className="md:col-span-4 space-y-2">
+            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Personal Travel Notes (Printed inside booklet)</label>
+            <textarea value={personalNotes} onChange={(e) => setPersonalNotes(e.target.value)}
+              placeholder="Write flight numbers, hotel reservation confirmations, emergency contacts, or packing checklist notes to print..."
+              rows="3" className="input-dark w-full rounded-xl px-3 py-2.5 text-xs" />
+          </div>
+        </div>
+      </div>
+
       {/* Floating AI Chat Assistant */}
-      <ChatAssistant tripId={trip._id} />
+      <ChatAssistant tripId={trip._id} onTripUpdated={(updatedTrip) => setTrip(updatedTrip)} />
     </div>
   );
 };

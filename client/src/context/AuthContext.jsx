@@ -32,6 +32,9 @@ export const AuthProvider = ({ children }) => {
     setError(null);
     try {
       const userData = await authService.login(email, password);
+      if (userData.requiresOTP) {
+        return userData;
+      }
       setUser(userData);
       return userData;
     } catch (err) {
@@ -59,6 +62,34 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const verifyOTP = async (email, otp) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const userData = await authService.verifyOTP(email, otp);
+      setUser(userData);
+      return userData;
+    } catch (err) {
+      const errMsg = err.response?.data?.message || 'Failed to verify OTP';
+      setError(errMsg);
+      throw new Error(errMsg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resendOTP = async (email) => {
+    setError(null);
+    try {
+      const result = await authService.resendOTP(email);
+      return result;
+    } catch (err) {
+      const errMsg = err.response?.data?.message || 'Failed to resend OTP';
+      setError(errMsg);
+      throw new Error(errMsg);
+    }
+  };
+
   const logout = () => {
     authService.logout();
     setUser(null);
@@ -72,6 +103,8 @@ export const AuthProvider = ({ children }) => {
         error,
         login,
         register,
+        verifyOTP,
+        resendOTP,
         logout,
         isAuthenticated: !!user,
       }}

@@ -30,12 +30,27 @@ const changePassword = async (currentPassword, newPassword) => {
   return response.data;
 };
 
+const verifyOTP = async (email, otp) => {
+  const response = await api.post('/auth/verify-otp', { email, otp });
+  if (response.data.token) {
+    localStorage.setItem('token', response.data.token);
+  }
+  return response.data;
+};
+
+const resendOTP = async (email) => {
+  const response = await api.post('/auth/resend-otp', { email });
+  return response.data;
+};
+
 const authService = {
   login,
   register,
   logout,
   getCurrentUser,
   changePassword,
+  verifyOTP,
+  resendOTP,
 };
 
 export default authService;

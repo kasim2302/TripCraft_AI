@@ -28,6 +28,7 @@ const MapView = ({ destination, activities = [] }) => {
               lat: parseFloat(data[0].lat),
               lon: parseFloat(data[0].lon)
             });
+            setLoading(false);
             return;
           }
         }

@@ -57,6 +57,10 @@ const TripDetails = () => {
   const [showPacking, setShowPacking] = useState(true);
   const [personalNotes, setPersonalNotes] = useState('');
 
+  // Custom Packing Item States
+  const [newPackingItem, setNewPackingItem] = useState('');
+  const [addingPackingItem, setAddingPackingItem] = useState(false);
+
   const COVER_PHOTOS = [
     { name: 'Ocean/Travel', url: 'https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?w=1200&q=80' },
     { name: 'Mountain Peak', url: 'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=1200&q=80' },
@@ -228,6 +232,41 @@ const TripDetails = () => {
       setTrip({ ...trip, packingList: updated });
       await tripService.togglePackingItem(trip._id, itemId);
     } catch { alert('Failed to update packing checklist'); }
+  };
+
+  const handleAddCustomPackingItem = async (e) => {
+    e.preventDefault();
+    if (!newPackingItem.trim()) return;
+
+    if (trip.packingList.some(i => i.item.toLowerCase() === newPackingItem.trim().toLowerCase())) {
+      alert(`"${newPackingItem}" is already in your checklist.`);
+      return;
+    }
+
+    try {
+      setAddingPackingItem(true);
+      const updatedTrip = await tripService.updateTrip(trip._id, {
+        packingList: [...trip.packingList, { item: newPackingItem.trim(), packed: false }]
+      });
+      setTrip(updatedTrip);
+      setNewPackingItem('');
+    } catch {
+      alert('Failed to add custom packing item');
+    } finally {
+      setAddingPackingItem(false);
+    }
+  };
+
+  const handleRemovePackingItem = async (itemId) => {
+    try {
+      const updatedList = trip.packingList.filter(item => item._id !== itemId);
+      const updatedTrip = await tripService.updateTrip(trip._id, {
+        packingList: updatedList
+      });
+      setTrip(updatedTrip);
+    } catch {
+      alert('Failed to remove packing item');
+    }
   };
 
   const handleAddExpense = async (e) => {
@@ -903,19 +942,48 @@ const TripDetails = () => {
                   <div className="h-full rounded-full bg-gradient-to-r from-brand-indigo to-brand-violet transition-all duration-500" style={{ width: `${packingPercentage}%` }} />
                 </div>
               </div>
+
+              {/* Add Custom Packing Item Form */}
+              <form onSubmit={handleAddCustomPackingItem} className="flex gap-2">
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Toothbrush, Camera, Charger"
+                  value={newPackingItem}
+                  onChange={(e) => setNewPackingItem(e.target.value)}
+                  className="input-dark flex-1 rounded-xl px-3.5 py-2.5 text-xs"
+                />
+                <button
+                  type="submit"
+                  disabled={addingPackingItem || !newPackingItem.trim()}
+                  className="btn-primary rounded-xl px-4 py-2.5 text-xs font-bold flex items-center justify-center shrink-0 gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Add Item
+                </button>
+              </form>
+
               {!totalPackingItems ? (
                 <div className="bg-white rounded-2xl p-10 text-center text-slate-400 text-sm border border-slate-100">No packing items compiled.</div>
               ) : (
                 <div className="bg-white rounded-2xl overflow-hidden border border-slate-200 shadow-sm divide-y divide-slate-50">
                   {trip.packingList?.map((item) => (
-                    <button key={item._id} onClick={() => handleTogglePacking(item._id)}
-                      className="w-full text-left px-5 py-4 flex items-center gap-4 hover:bg-slate-50 transition-colors cursor-pointer group">
-                      {item.packed
-                        ? <CheckSquare className="h-5 w-5 text-brand-indigo shrink-0" />
-                        : <Square className="h-5 w-5 text-slate-300 shrink-0 group-hover:text-brand-indigo transition-colors" />
-                      }
-                      <span className={`text-sm transition-colors ${item.packed ? 'text-slate-300 line-through' : 'text-slate-800'}`}>{item.item}</span>
-                    </button>
+                    <div key={item._id} className="w-full px-5 py-4 flex items-center justify-between hover:bg-slate-50 transition-colors group">
+                      <button onClick={() => handleTogglePacking(item._id)}
+                        className="text-left flex items-center gap-4 cursor-pointer flex-1">
+                        {item.packed
+                          ? <CheckSquare className="h-5 w-5 text-brand-indigo shrink-0" />
+                          : <Square className="h-5 w-5 text-slate-300 shrink-0 group-hover:text-brand-indigo transition-colors" />
+                        }
+                        <span className={`text-sm transition-colors ${item.packed ? 'text-slate-300 line-through' : 'text-slate-800'}`}>{item.item}</span>
+                      </button>
+                      
+                      <button
+                        onClick={() => handleRemovePackingItem(item._id)}
+                        className="p-1 rounded-lg hover:bg-rose-50 text-slate-400 hover:text-rose-500 transition-colors cursor-pointer opacity-0 group-hover:opacity-100 animate-fade-in"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
                   ))}
                 </div>
               )}

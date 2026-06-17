@@ -40,6 +40,11 @@ const deleteBudgetItem = async (id, itemId) => {
   return response.data;
 };
 
+const sendChat = async (id, message) => {
+  const response = await api.post(`/trips/${id}/chat`, { message });
+  return response.data;
+};
+
 const tripService = {
   getTrips,
   getTripById,
@@ -49,6 +54,7 @@ const tripService = {
   togglePackingItem,
   addBudgetItem,
   deleteBudgetItem,
+  sendChat,
 };
 
 export default tripService;

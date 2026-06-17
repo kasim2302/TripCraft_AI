@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import axios from 'axios';
+import tripService from '../services/tripService';
 import { MessageSquare, X, Send, Sparkles, Loader2 } from 'lucide-react';
 
 const SUGGESTIONS = [
@@ -40,21 +40,12 @@ const ChatAssistant = ({ tripId }) => {
     setLoading(true);
 
     try {
-      const token = localStorage.getItem('token') || '';
-      const response = await axios.post(
-        `http://localhost:5000/api/trips/${tripId}/chat`,
-        { message: text },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        }
-      );
+      const data = await tripService.sendChat(tripId, text);
 
       const assistantMsg = {
         id: (Date.now() + 1).toString(),
         sender: 'assistant',
-        text: response.data?.reply || "I couldn't generate advice right now. Please try again."
+        text: data?.reply || "I couldn't generate advice right now. Please try again."
       };
       setMessages(prev => [...prev, assistantMsg]);
     } catch (err) {

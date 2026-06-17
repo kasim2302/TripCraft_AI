@@ -112,6 +112,10 @@ const Layout = ({ children }) => {
               <span className="font-display font-bold text-slate-500">TripCraft AI</span>
               <span className="text-slate-300">·</span>
               <span>© {new Date().getFullYear()} All rights reserved.</span>
+              <span className="text-slate-300">·</span>
+              <Link to="/privacy" className="hover:text-brand-indigo hover:underline transition-colors">Privacy Policy</Link>
+              <span className="text-slate-300">·</span>
+              <Link to="/terms" className="hover:text-brand-indigo hover:underline transition-colors">Terms of Service</Link>
             </div>
             <div className="flex items-center gap-1.5">
               <span>Made with</span>
@@ -304,6 +308,10 @@ const Layout = ({ children }) => {
                 <span className="font-display font-semibold text-slate-500">TripCraft AI</span>
                 <span className="text-slate-300">·</span>
                 <span>© {new Date().getFullYear()}</span>
+                <span className="text-slate-300">·</span>
+                <Link to="/privacy" className="hover:text-brand-indigo hover:underline transition-colors">Privacy</Link>
+                <span className="text-slate-300">·</span>
+                <Link to="/terms" className="hover:text-brand-indigo hover:underline transition-colors">Terms</Link>
               </div>
               <div className="flex items-center gap-1.5">
                 <span>Powered by</span>

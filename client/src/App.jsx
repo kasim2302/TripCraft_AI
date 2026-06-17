@@ -12,6 +12,8 @@ import Dashboard from './pages/Dashboard';
 import CreateTrip from './pages/CreateTrip';
 import TripDetails from './pages/TripDetails';
 import ShareItinerary from './pages/ShareItinerary';
+import PrivacyPolicy from './pages/PrivacyPolicy';
+import TermsConditions from './pages/TermsConditions';
 
 function App() {
   return (
@@ -25,6 +27,10 @@ function App() {
             
             {/* Public Shared Itinerary Route (Does not require Auth) */}
             <Route path="/share/:shareId" element={<ShareItinerary />} />
+            
+            {/* Policy Routes */}
+            <Route path="/privacy" element={<PrivacyPolicy />} />
+            <Route path="/terms" element={<TermsConditions />} />
             
             {/* Protected Routes */}
             <Route

@@ -130,11 +130,12 @@ For categories, choose from: Sightseeing, Food, Transport, Lodging, Activities, 
 Each activity MUST have precise, real latitude and longitude numbers (numerical float values, not strings) mapping to actual physical locations in ${destination} so they can be routed correctly on a map.
 `;
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent`;
     const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
       },
       body: JSON.stringify({
         contents: [

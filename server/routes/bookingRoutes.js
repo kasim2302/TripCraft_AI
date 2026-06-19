@@ -2,6 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import multerS3 from 'multer-s3';
 import { S3Client, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { v2 as cloudinary } from 'cloudinary';
 import fs from 'fs';
 import path from 'path';
 import { protect } from '../middleware/authMiddleware.js';
@@ -24,6 +25,20 @@ const fileFilter = (req, file, cb) => {
     cb(new Error('Invalid file type. Only PDF, PNG, JPG, and JPEG are allowed.'), false);
   }
 };
+// Configure Cloudinary Client
+const hasCloudinaryConfig =
+  process.env.CLOUDINARY_CLOUD_NAME &&
+  process.env.CLOUDINARY_API_KEY &&
+  process.env.CLOUDINARY_API_SECRET;
+
+if (hasCloudinaryConfig) {
+  console.log('Cloudinary credentials found. Initializing Cloudinary configuration...');
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+  });
+}
 
 // Configure AWS S3 Client
 const hasAwsConfig = 
@@ -34,7 +49,30 @@ const hasAwsConfig =
 let s3Client = null;
 let upload = null;
 
-if (hasAwsConfig) {
+if (hasCloudinaryConfig) {
+  console.log('Cloudinary is active. Initializing local disk buffer for Cloudinary uploads...');
+  
+  // Ensure local uploads directory exists
+  if (!fs.existsSync('uploads')) {
+    fs.mkdirSync('uploads');
+  }
+
+  const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+      cb(null, 'uploads/');
+    },
+    filename: (req, file, cb) => {
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+      cb(null, `${uniqueSuffix}-${file.originalname}`);
+    },
+  });
+
+  upload = multer({
+    storage,
+    limits: { fileSize: MAX_FILE_SIZE },
+    fileFilter,
+  });
+} else if (hasAwsConfig) {
   console.log('AWS S3 credentials found. Initializing S3 uploader storage...');
   s3Client = new S3Client({
     region: process.env.AWS_REGION || 'us-east-1',
@@ -60,7 +98,7 @@ if (hasAwsConfig) {
     fileFilter,
   });
 } else {
-  console.log('No S3 credentials found. Falling back to local disk storage...');
+  console.log('No Cloudinary or S3 credentials found. Falling back to local disk storage...');
   
   // Ensure local uploads directory exists
   if (!fs.existsSync('uploads')) {
@@ -84,6 +122,7 @@ if (hasAwsConfig) {
   });
 }
 
+
 // @desc    Upload booking document & run OCR + Gemini parsing
 // @route   POST /api/bookings/upload
 // @access  Private
@@ -99,21 +138,8 @@ router.post('/upload', protect, (req, res) => {
     }
 
     try {
-      let fileUrl = '';
-      let fileKey = '';
-
-      if (hasAwsConfig) {
-        fileUrl = req.file.location; // S3 File URL
-        fileKey = req.file.key;      // S3 File Key
-      } else {
-        fileUrl = `/uploads/${req.file.filename}`; // Local static URL
-        fileKey = req.file.filename;               // Local filename
-      }
-
-      console.log(`File uploaded successfully. Url: ${fileUrl}, Key: ${fileKey}`);
-
-      // 1. Run OCR Extraction
-      const absolutePathOrUrl = hasAwsConfig ? fileUrl : req.file.path;
+      // 1. Run OCR Extraction on local staging file or S3 location
+      const absolutePathOrUrl = hasAwsConfig ? req.file.location : req.file.path;
       console.log(`Triggering OCR parsing on path: ${absolutePathOrUrl}`);
       const rawText = await extractText(absolutePathOrUrl, req.file.mimetype);
 
@@ -121,7 +147,35 @@ router.post('/upload', protect, (req, res) => {
       console.log('Triggering Gemini booking details extraction...');
       const extractedData = await parseTravelDocument(rawText);
 
-      // 3. Save Booking details to database
+      // 3. Store file and clean up temp staging files
+      let fileUrl = '';
+      let fileKey = '';
+
+      if (hasCloudinaryConfig) {
+        const resourceType = req.file.mimetype === 'application/pdf' ? 'raw' : 'image';
+        console.log(`Uploading file ${req.file.path} to Cloudinary with resource_type: ${resourceType}...`);
+        const cloudinaryResult = await cloudinary.uploader.upload(req.file.path, {
+          folder: 'bookings',
+          resource_type: resourceType,
+        });
+        fileUrl = cloudinaryResult.secure_url;
+        fileKey = `cloudinary:${cloudinaryResult.resource_type || resourceType}:${cloudinaryResult.public_id}`;
+
+        // Remove local temp file
+        if (fs.existsSync(req.file.path)) {
+          fs.unlinkSync(req.file.path);
+        }
+      } else if (hasAwsConfig) {
+        fileUrl = req.file.location; // S3 File URL
+        fileKey = req.file.key;      // S3 File Key
+      } else {
+        fileUrl = `/uploads/${req.file.filename}`; // Local static URL
+        fileKey = req.file.filename;               // Local filename
+      }
+
+      console.log(`File stored successfully. Url: ${fileUrl}, Key: ${fileKey}`);
+
+      // 4. Save Booking details to database
       const booking = await Booking.create({
         userId: req.user._id,
         fileUrl,
@@ -138,6 +192,13 @@ router.post('/upload', protect, (req, res) => {
       });
     } catch (ocrError) {
       console.error('OCR/Gemini processing failure:', ocrError.message);
+      
+      // Clean up local temp file on error if we are not using S3
+      if (!hasAwsConfig && req.file && req.file.path && fs.existsSync(req.file.path)) {
+        console.log(`Cleaning up local temp file after failure: ${req.file.path}`);
+        fs.unlinkSync(req.file.path);
+      }
+
       return res.status(500).json({
         message: 'File uploaded, but failed to extract OCR text details.',
         error: ocrError.message,
@@ -157,7 +218,17 @@ router.delete('/:id', protect, async (req, res) => {
     }
 
     // Remove file object from storage
-    if (hasAwsConfig && s3Client) {
+    if (booking.fileKey && booking.fileKey.startsWith('cloudinary:')) {
+      if (hasCloudinaryConfig) {
+        console.log(`Deleting file object from Cloudinary: ${booking.fileKey}`);
+        const parts = booking.fileKey.split(':');
+        const resourceType = parts[1];
+        const publicId = parts.slice(2).join(':');
+        await cloudinary.uploader.destroy(publicId, { resource_type: resourceType });
+      } else {
+        console.warn('Cloudinary credentials not configured. Cannot delete file from Cloudinary.');
+      }
+    } else if (hasAwsConfig && s3Client) {
       console.log(`Deleting file object from AWS S3 bucket: ${booking.fileKey}`);
       await s3Client.send(
         new DeleteObjectCommand({
